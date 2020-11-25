@@ -71,7 +71,7 @@ func (p *HelloService) Hello(request *String, reply *String) error {
 
 至此，我们初步实现了Protobuf和RPC组合工作。在启动RPC服务时，我们依然可以选择默认的gob或手工指定json编码，甚至可以重新基于protobuf编码实现一个插件。虽然做了这么多工作，但是似乎并没有看到什么收益！
 
-回顾第一章中更安全的PRC接口部分的内容，当时我们花费了极大的力气去给RPC服务增加安全的保障。最终得到的更安全的PRC接口的代码本书就非常繁琐的使用手工维护，同时全部安全相关的代码只适用于Go语言环境！既然使用了Protobuf定义的输入和输出参数，那么RPC服务接口是否也可以通过Protobuf定义呢？其实用Protobuf定义语言无关的PRC服务接口才是它真正的价值所在！
+回顾第一章中更安全的RPC接口部分的内容，当时我们花费了极大的力气去给RPC服务增加安全的保障。最终得到的更安全的RPC接口的代码本身就非常繁琐的使用手工维护，同时全部安全相关的代码只适用于Go语言环境！既然使用了Protobuf定义的输入和输出参数，那么RPC服务接口是否也可以通过Protobuf定义呢？其实用Protobuf定义语言无关的RPC服务接口才是它真正的价值所在！
 
 下面更新hello.proto文件，通过Protobuf来定义HelloService服务：
 
@@ -81,24 +81,24 @@ service HelloService {
 }
 ```
 
-但是重新生成的Go代码并没有发生变化。这是因为世界上的RPC实现有千万种，protoc编译器并不知道改如何为HelloService服务生成代码。
+但是重新生成的Go代码并没有发生变化。这是因为世界上的RPC实现有千万种，protoc编译器并不知道该如何为HelloService服务生成代码。
 
-不过在protoc-gen-go内部已经集成了一个叫grpc的插件，可以针对grpc生成代码：
+不过在protoc-gen-go内部已经集成了一个名字为`grpc`的插件，可以针对gRPC生成代码：
 
 ```
 $ protoc --go_out=plugins=grpc:. hello.proto
 ```
 
-在生成的代码中多了一些类似HelloServiceServer、HelloServiceClient的新类型。这些类型是为grpc服务的，并不符合我们的RPC要求。
+在生成的代码中多了一些类似HelloServiceServer、HelloServiceClient的新类型。这些类型是为gRPC服务的，并不符合我们的RPC要求。
 
-不过grpc插件为我们提供了改进的思路，下面我们将探索如何为我们的RPC生成安全的代码。
+不过gRPC插件为我们提供了改进的思路，下面我们将探索如何为我们的RPC生成安全的代码。
 
 
 ## 4.2.2 定制代码生成插件
 
-Protobuf的protoc编译器是通过插件机制实现对不同语言的支持。比如protoc命令出现`--xxx_out`格式的参数，那么protoc将首先查询是否有内置的xxx插件，如果没有内置的xxx插件那么将继续查询当前系统中是否存在protoc-gen-xxx命名的可执行程序，最终通过查询到的插件生成代码。对于Go语言的protoc-gen-go插件来说，里面又实现了一层静态插件系统。比如protoc-gen-go内置了一个grpc插件，用户可以通过`--go_out=plugins=grpc`参数来生成grpc相关代码，否则只会针对message生成相关代码。
+Protobuf的protoc编译器是通过插件机制实现对不同语言的支持。比如protoc命令出现`--xxx_out`格式的参数，那么protoc将首先查询是否有内置的xxx插件，如果没有内置的xxx插件那么将继续查询当前系统中是否存在protoc-gen-xxx命名的可执行程序，最终通过查询到的插件生成代码。对于Go语言的protoc-gen-go插件来说，里面又实现了一层静态插件系统。比如protoc-gen-go内置了一个gRPC插件，用户可以通过`--go_out=plugins=grpc`参数来生成gRPC相关代码，否则只会针对message生成相关代码。
 
-参考grpc插件的代码，可以发现generator.RegisterPlugin函数可以用来注册插件。插件是一个generator.Plugin接口：
+参考gRPC插件的代码，可以发现generator.RegisterPlugin函数可以用来注册插件。插件是一个generator.Plugin接口：
 
 ```go
 // A Plugin provides functionality to add to the output during
@@ -220,7 +220,7 @@ func main() {
 }
 ```
 
-为了避免对protoc-gen-go插件造成干扰，我们将我们的可执行程序命名为protoc-gen-go-netrpc，表示包含了nerpc插件。然后用以下命令重新编译hello.proto文件：
+为了避免对protoc-gen-go插件造成干扰，我们将我们的可执行程序命名为protoc-gen-go-netrpc，表示包含了netrpc插件。然后用以下命令重新编译hello.proto文件：
 
 ```
 $ protoc --go-netrpc_out=plugins=netrpc:. hello.proto
@@ -262,7 +262,9 @@ type ServiceMethodSpec struct {
 然后我们新建一个buildServiceSpec方法用来解析每个服务的ServiceSpec元信息：
 
 ```go
-func (p *netrpcPlugin) buildServiceSpec(svc *descriptor.ServiceDescriptorProto) *ServiceSpec {
+func (p *netrpcPlugin) buildServiceSpec(
+	svc *descriptor.ServiceDescriptorProto,
+) *ServiceSpec {
 	spec := &ServiceSpec{
 		ServiceName: generator.CamelCase(svc.GetName()),
 	}

@@ -7,7 +7,10 @@
 Go语言的RPC库最简单的使用方式是通过`Client.Call`方法进行同步阻塞调用，该方法的实现如下：
 
 ```go
-func (client *Client) Call(serviceMethod string, args interface{}, reply interface{}) error {
+func (client *Client) Call(
+	serviceMethod string, args interface{},
+	reply interface{},
+) error {
 	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
 	return call.Error
 }
@@ -39,7 +42,11 @@ func doClientWork(client *rpc.Client) {
 执行异步调用的`Client.Go`方法实现如下：
 
 ```go
-func (client *Client) Go(serviceMethod string, args interface{}, reply interface{}, done chan *Call) *Call {
+func (client *Client) Go(
+	serviceMethod string, args interface{},
+	reply interface{},
+	done chan *Call,
+) *Call {
 	call := new(Call)
 	call.ServiceMethod = serviceMethod
 	call.Args = args
@@ -96,8 +103,8 @@ func NewKVStoreService() *KVStoreService {
 
 ```go
 func (p *KVStoreService) Get(key string, value *string) error {
-	p.Lock()
-	defer p.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	if v, ok := p.m[key]; ok {
 		*value = v
@@ -108,8 +115,8 @@ func (p *KVStoreService) Get(key string, value *string) error {
 }
 
 func (p *KVStoreService) Set(kv [2]string, reply *struct{}) error {
-	p.Lock()
-	defer p.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	key, value := kv[0], kv[1]
 
@@ -133,9 +140,9 @@ func (p *KVStoreService) Watch(timeoutSecond int, keyChanged *string) error {
 	id := fmt.Sprintf("watch-%s-%03d", time.Now(), rand.Int())
 	ch := make(chan string, 10) // buffered
 
-	p.Lock()
+	p.mu.Lock()
 	p.filter[id] = func(key string) { ch <- key }
-	p.Unlock()
+	p.mu.Unlock()
 
 	select {
 	case <-time.After(time.Duration(timeoutSecond) * time.Second):
@@ -164,7 +171,10 @@ func doClientWork(client *rpc.Client) {
 		fmt.Println("watch:", keyChanged)
 	} ()
 
-	err := client.Call("KVStoreService.Set", [2]string{"abc", "abc-value"}, new(struct{}))
+	err := client.Call(
+		"KVStoreService.Set", [2]string{"abc", "abc-value"},
+		new(struct{}),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -250,7 +260,7 @@ func doClientWork(clientChan <-chan *rpc.Client) {
 
 ## 4.3.4 上下文信息
 
-基于上下文我们可以针对不同客户端提供定制化的RPC服务。我们可以通过为每个信道提供独立的RPC服务来实现对上下文特性的支持。
+基于上下文我们可以针对不同客户端提供定制化的RPC服务。我们可以通过为每个链接提供独立的RPC服务来实现对上下文特性的支持。
 
 首先改造HelloService，里面增加了对应链接的conn成员：
 
@@ -260,7 +270,7 @@ type HelloService struct {
 }
 ```
 
-然后为每个信道启动独立的RPC服务：
+然后为每个链接启动独立的RPC服务：
 
 ```go
 func main() {
@@ -286,7 +296,7 @@ func main() {
 }
 ```
 
-Hello方法中就可以根据conn成员识别不同信道的RPC调用：
+Hello方法中就可以根据conn成员识别不同链接的RPC调用：
 
 ```go
 func (p *HelloService) Hello(request string, reply *string) error {

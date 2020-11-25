@@ -62,11 +62,11 @@ main.main()
 func GetGoid() int64 {
 	var (
 		buf [64]byte
-		n = runtime.Stack(buf[:], false)
-		stk = strings.TrimPrefix(string(buf[:n])
+		n   = runtime.Stack(buf[:], false)
+		stk = strings.TrimPrefix(string(buf[:n]), "goroutine ")
 	)
 
-	idField := strings.Fields(stk, "goroutine "))[0]
+	idField := strings.Fields(stk)[0]
 	id, err := strconv.Atoi(idField)
 	if err != nil {
 		panic(fmt.Errorf("can not get goroutine id: %v", err))
@@ -156,7 +156,7 @@ var g_goid_offset = func() int64 {
 			return off
 		}
 	}
-	panic("unsupport go verion:"+goversion)
+	panic("unsupported go version:"+goversion)
 }()
 ```
 

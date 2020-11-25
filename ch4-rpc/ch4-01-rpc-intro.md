@@ -60,13 +60,13 @@ func main() {
 }
 ```
 
-首选是通过rpc.Dial拨号RPC服务，然后通过client.Call调用具体的RPC方法。在调用client.Call时，第一个参数是用点号链接的RPC服务名字和方法名字，第二和第三个参数分别我们定义RPC方法的两个参数。
+首先是通过rpc.Dial拨号RPC服务，然后通过client.Call调用具体的RPC方法。在调用client.Call时，第一个参数是用点号链接的RPC服务名字和方法名字，第二和第三个参数分别我们定义RPC方法的两个参数。
 
 由这个例子可以看出RPC的使用其实非常简单。
 
-## 4.1.2 更安全的PRC接口
+## 4.1.2 更安全的RPC接口
 
-在涉及RPC的应用中，作为开发人员一般至少有三种角色：首选是服务端实现RPC方法的开发人员，其次是客户端调用RPC方法的人员，最后也是最重要的是制定服务端和客户端RPC接口规范的设计人员。在前面的例子中我们为了简化将以上几种角色的工作全部放到了一起，虽然看似实现简单，但是不利于后期的维护和工作的切割。
+在涉及RPC的应用中，作为开发人员一般至少有三种角色：首先是服务端实现RPC方法的开发人员，其次是客户端调用RPC方法的人员，最后也是最重要的是制定服务端和客户端RPC接口规范的设计人员。在前面的例子中我们为了简化将以上几种角色的工作全部放到了一起，虽然看似实现简单，但是不利于后期的维护和工作的切割。
 
 如果要重构HelloService服务，第一步需要明确服务的名字和接口：
 
@@ -101,7 +101,7 @@ func main() {
 }
 ```
 
-其中唯一的变化是client.Call的第一个参数用`HelloServiceName+".Hello"代替了"HelloService.Hello"。然而通过client.Call函数调用RPC方法依然比较繁琐，同时参数的类型依然无法得到编译器提供的安全保障。
+其中唯一的变化是client.Call的第一个参数用HelloServiceName+".Hello"代替了"HelloService.Hello"。然而通过client.Call函数调用RPC方法依然比较繁琐，同时参数的类型依然无法得到编译器提供的安全保障。
 
 为了简化客户端用户调用RPC函数，我们在可以在接口规范部分增加对客户端的简单包装：
 
@@ -182,7 +182,7 @@ func main() {
 
 标准库的RPC默认采用Go语言特有的gob编码，因此从其它语言调用Go语言实现的RPC服务将比较困难。在互联网的微服务时代，每个RPC以及服务的使用者都可能采用不同的编程语言，因此跨语言是互联网时代RPC的一个首要条件。得益于RPC的框架设计，Go语言的RPC其实也是很容易实现跨语言支持的。
 
-Go语言的RPC框架有两个比较有特色的设计：一个是RPC数据打包时可以通过插件实现自定义的编码和解码；另一个是RPC建立在抽象的io.ReadWriteCloser接口之上的，我们可以将RPC架设在不同的通讯协议之上。这里我们将尝试通过官方自带的net/rpc/jsonrpc扩展实现一个跨语言的PPC。
+Go语言的RPC框架有两个比较有特色的设计：一个是RPC数据打包时可以通过插件实现自定义的编码和解码；另一个是RPC建立在抽象的io.ReadWriteCloser接口之上的，我们可以将RPC架设在不同的通讯协议之上。这里我们将尝试通过官方自带的net/rpc/jsonrpc扩展实现一个跨语言的RPC。
 
 首先是基于json编码重新实现RPC服务：
 
@@ -229,7 +229,7 @@ func main() {
 }
 ```
 
-先手工调用net.Dial函数建立TCP链接，然后基于TCP信道建立针对客户端的json编解码器。
+先手工调用net.Dial函数建立TCP链接，然后基于该链接建立针对客户端的json编解码器。
 
 在确保客户端可以正常调用RPC服务的方法之后，我们用一个普通的TCP服务代替Go语言版本的RPC服务，这样可以查看客户端调用时发送的数据格式。比如通过nc命令`nc -l 1234`在同样的端口启动一个TCP服务。然后再次执行一次RPC调用将会发现nc输出了以下的信息：
 
@@ -318,7 +318,8 @@ RPC的服务架设在“/jsonrpc”路径，在处理函数中基于http.Respons
 模拟一次RPC调用的过程就是向该链接发送一个json字符串：
 
 ```
-$ curl localhost:1234/jsonrpc -X POST --data '{"method":"HelloService.Hello","params":["hello"],"id":0}'
+$ curl localhost:1234/jsonrpc -X POST \
+	--data '{"method":"HelloService.Hello","params":["hello"],"id":0}'
 ```
 
 返回的结果依然是json字符串：

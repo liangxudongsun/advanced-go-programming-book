@@ -9,7 +9,10 @@
 
 和C语言函数不同，Go语言函数的参数和返回值完全通过栈传递。下面是Go函数调用时栈的布局图：
 
-![](../images/ch3-func-stack-frame-layout-01.ditaa.png)
+![](../images/ch3-13-func-stack-frame-layout-01.ditaa.png)
+
+*图 3-13 函数调用参数布局*
+
 
 首先是调用函数前准备的输入参数和返回值空间。然后CALL指令将首先触发返回地址入栈操作。在进入到被调用函数内之后，汇编器自动插入了BP寄存器相关的指令，因此BP寄存器和返回地址是紧挨着的。再下面就是当前函数的局部变量的空间，包含再次调用其它函数需要准备的调用参数空间。被调用的函数执行RET返回指令时，先从栈恢复BP和SP寄存器，接着取出的返回地址跳转到对应的指令执行。
 
@@ -274,7 +277,7 @@ L_STEP_TO_END:
 
 L_END:
 	MOVQ $0, result+8(FP) // return 0
-    RET
+	RET
 ```
 
 在汇编版本函数中并没有定义局部变量，只有用于调用自身的临时栈空间。因为函数本身的参数和返回值有16个字节，因此栈帧的大小也为16字节。L_STEP_TO_END标号部分用于处理递归调用，是函数比较复杂的部分。L_END用于处理递归终结的部分。
@@ -296,4 +299,88 @@ TEXT ·sum(SB), $16-16
 除了去掉了NOSPLIT标志，我们还在函数开头增加了一个NO_LOCAL_POINTERS语句，该语句表示函数没有局部指针变量。栈的扩容必然要涉及函数参数和局部编指针的调整，如果缺少局部指针信息将导致扩容工作无法进行。不仅仅是栈的扩容需要函数的参数和局部指针标记表格，在GC进行垃圾回收时也将需要。函数的参数和返回值的指针状态可以通过在Go语言中的函数声明中获取，函数的局部变量则需要手工指定。因为手工指定指针表格是一个非常繁琐的工作，因此一般要避免在手写汇编中出现局部指针。
 
 喜欢深究的读者可能会有一个问题：如果进行垃圾回收或栈调整时，寄存器中的指针是如何维护的？前文说过，Go语言的函数调用是通过栈进行传递参数的，并没有使用寄存器传递参数。同时函数调用之后所有的寄存器视为失效。因此在调整和维护指针时，只需要扫描内存中的指针数据，寄存器中的数据在垃圾回收器函数返回后都需要重新加载，因此寄存器是不需要扫描的。
+
+## 3.6.6 闭包函数
+
+闭包函数是最强大的函数，因为闭包函数可以捕获外层局部作用域的局部变量，因此闭包函数本身就具有了状态。从理论上来说，全局的函数也是闭包函数的子集，只不过全局函数并没有捕获外层变量而已。
+
+为了理解闭包函数如何工作，我们先构造如下的例子：
+
+```go
+package main
+
+func NewTwiceFunClosure(x int) func() int {
+	return func() int {
+		x *= 2
+		return x
+	}
+}
+
+func main() {
+	fnTwice := NewTwiceFunClosure(1)
+
+	println(fnTwice()) // 1*2 => 2
+	println(fnTwice()) // 2*2 => 4
+	println(fnTwice()) // 4*2 => 8
+}
+```
+
+其中`NewTwiceFunClosure`函数返回一个闭包函数对象，返回的闭包函数对象捕获了外层的`x`参数。返回的闭包函数对象在执行时，每次将捕获的外层变量乘以2之后再返回。在`main`函数中，首先以1作为参数调用`NewTwiceFunClosure`函数构造一个闭包函数，返回的闭包函数保存在`fnTwice`闭包函数类型的变量中。然后每次调用`fnTwice`闭包函数将返回翻倍后的结果，也就是：2，4，8。
+
+上述的代码，从Go语言层面是非常容易理解的。但是闭包函数在汇编语言层面是如何工作的呢？下面我们尝试手工构造闭包函数来展示闭包的工作原理。首先是构造`FunTwiceClosure`结构体类型，用来表示闭包对象：
+
+```go
+type FunTwiceClosure struct {
+	F uintptr
+	X int
+}
+
+func NewTwiceFunClosure(x int) func() int {
+	var p = &FunTwiceClosure{
+		F: asmFunTwiceClosureAddr(),
+		X: x,
+	}
+	return ptrToFunc(unsafe.Pointer(p))
+}
+```
+
+`FunTwiceClosure`结构体包含两个成员，第一个成员`F`表示闭包函数的函数指令的地址，第二个成员`X`表示闭包捕获的外部变量。如果闭包函数捕获了多个外部变量，那么`FunTwiceClosure`结构体也要做相应的调整。然后构造`FunTwiceClosure`结构体对象，其实也就是闭包函数对象。其中`asmFunTwiceClosureAddr`函数用于辅助获取闭包函数的函数指令的地址，采用汇编语言实现。最后通过`ptrToFunc`辅助函数将结构体指针转为闭包函数对象返回，该函数也是通过汇编语言实现。
+
+汇编语言实现了以下三个辅助函数：
+
+```go
+func ptrToFunc(p unsafe.Pointer) func() int
+
+func asmFunTwiceClosureAddr() uintptr
+func asmFunTwiceClosureBody() int
+```
+
+其中`ptrToFunc`用于将指针转化为`func() int`类型的闭包函数，`asmFunTwiceClosureAddr`用于返回闭包函数机器指令的开始地址（类似全局函数的地址），`asmFunTwiceClosureBody`是闭包函数对应的全局函数的实现。
+
+然后用Go汇编语言实现以上三个辅助函数：
+
+```s
+#include "textflag.h"
+
+TEXT ·ptrToFunc(SB), NOSPLIT, $0-16
+	MOVQ ptr+0(FP), AX // AX = ptr
+	MOVQ AX, ret+8(FP) // return AX
+	RET
+
+TEXT ·asmFunTwiceClosureAddr(SB), NOSPLIT, $0-8
+	LEAQ ·asmFunTwiceClosureBody(SB), AX // AX = ·asmFunTwiceClosureBody(SB)
+	MOVQ AX, ret+0(FP)                   // return AX
+	RET
+
+TEXT ·asmFunTwiceClosureBody(SB), NOSPLIT|NEEDCTXT, $0-8
+	MOVQ 8(DX), AX
+	ADDQ AX   , AX        // AX *= 2
+	MOVQ AX   , 8(DX)     // ctx.X = AX
+	MOVQ AX   , ret+0(FP) // return AX
+	RET
+```
+
+其中`·ptrToFunc`和`·asmFunTwiceClosureAddr`函数的实现比较简单，我们不再详细描述。最重要的是`·asmFunTwiceClosureBody`函数的实现：它有一个`NEEDCTXT`标志。采用`NEEDCTXT`标志定义的汇编函数表示需要一个上下文环境，在AMD64环境下是通过`DX`寄存器来传递这个上下文环境指针，也就是对应`FunTwiceClosure`结构体的指针。函数首先从`FunTwiceClosure`结构体对象取出之前捕获的`X`，将`X`乘以2之后写回内存，最后返回修改之后的`X`的值。
+
+如果是在汇编语言中调用闭包函数，也需要遵循同样的流程：首先为构造闭包对象，其中保存捕获的外层变量；在调用闭包函数时首先要拿到闭包对象，用闭包对象初始化`DX`，然后从闭包对象中取出函数地址并用通过`CALL`指令调用。
 

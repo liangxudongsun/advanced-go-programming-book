@@ -1,12 +1,12 @@
 # 2.3 类型转换
 
-最初CGO是为了达到方便从Go语言函数调用C语言函数以复用C语言资源这一目的而出现的(因为C语言还会涉及回调函数，自然也会涉及到从C语言函数调用Go语言函数)。现在，它已经演变为C语言和Go语言双向通讯的桥梁。要想利用好CGO特性，自然需要了解此二语言类型之间的转换规则，这是本节要讨论的问题。
+最初CGO是为了达到方便从Go语言函数调用C语言函数（用C语言实现Go语言声明的函数）以复用C语言资源这一目的而出现的（因为C语言还会涉及回调函数，自然也会涉及到从C语言函数调用Go语言函数（用Go语言实现C语言声明的函数））。现在，它已经演变为C语言和Go语言双向通讯的桥梁。要想利用好CGO特性，自然需要了解此二语言类型之间的转换规则，这是本节要讨论的问题。
 
 ## 2.3.1 数值类型
 
 在Go语言中访问C语言的符号时，一般是通过虚拟的“C”包访问，比如`C.int`对应C语言的`int`类型。有些C语言的类型是由多个关键字组成，但通过虚拟的“C”包访问C语言类型时名称部分不能有空格字符，比如`unsigned int`不能直接通过`C.unsigned int`访问。因此CGO为C语言的基础数值类型都提供了相应转换规则，比如`C.uint`对应C语言的`unsigned int`。
 
-Go语言中数值类型和C语言数据类型基本上是相似的，以下是它们的对应关系表。
+Go语言中数值类型和C语言数据类型基本上是相似的，以下是它们的对应关系表2-1所示。
 
 C语言类型               | CGO类型      | Go语言类型
 ---------------------- | ----------- | ---------
@@ -24,6 +24,8 @@ unsigned long long int | C.ulonglong | uint64
 float                  | C.float     | float32
 double                 | C.double    | float64
 size_t                 | C.size_t    | uint
+
+*表 2-1 Go语言和C语言类型对比*
 
 需要注意的是，虽然在C语言中`int`、`short`等类型没有明确定义内存大小，但是在CGO中它们的内存大小是确定的。在CGO中，C语言的`int`和`long`类型都是对应4个字节的内存大小，`size_t`类型可以当作Go语言`uint`无符号整数类型对待。
 
@@ -44,7 +46,7 @@ typedef float GoFloat32;
 typedef double GoFloat64;
 ```
 
-除了`GoInt`和`GoUint`之外，我们并不推荐直接访问`GoInt32`、`GoInt64`等类型。更好的做法是通过C语言的C99标准引入的`<stdint.h>`头文件。为了提高C语言的可移植性，在`<stdint.h>`文件中，不但每个数值类型都提供了明确内存大小，而且和Go语言的类型命名更加一致。
+除了`GoInt`和`GoUint`之外，我们并不推荐直接访问`GoInt32`、`GoInt64`等类型。更好的做法是通过C语言的C99标准引入的`<stdint.h>`头文件。为了提高C语言的可移植性，在`<stdint.h>`文件中，不但每个数值类型都提供了明确内存大小，而且和Go语言的类型命名更加一致。Go语言类型`<stdint.h>`头文件类型对比如表2-2所示。
 
 C语言类型 | CGO类型     | Go语言类型
 -------- | ---------- | ---------
@@ -56,6 +58,8 @@ int32_t  | C.int32_t  | int32
 uint32_t | C.uint32_t | uint32
 int64_t  | C.int64_t  | int64
 uint64_t | C.uint64_t | uint64
+
+*表 2-2 `<stdint.h>`类型对比*
 
 前文说过，如果C语言的类型是由多个关键字组成，则无法通过虚拟的“C”包直接访问(比如C语言的`unsigned short`不能直接通过`C.unsigned short`访问)。但是，在`<stdint.h>`中通过使用C语言的`typedef`关键字将`unsigned short`重新定义为`uint16_t`这样一个单词的类型后，我们就可以通过`C.uint16_t`访问原来的`unsigned short`类型了。对于比较复杂的C语言类型，推荐使用`typedef`关键字提供一个规则的类型命名，这样更利于在CGO中访问。
 
@@ -71,7 +75,7 @@ typedef struct { void *t; void *v; } GoInterface;
 typedef struct { void *data; GoInt len; GoInt cap; } GoSlice;
 ```
 
-不过需要注意的是，其中只有字符串和切片在CGO中有一定的使用价值，因为此二者可以在Go调用C语言函数时马上使用;而CGO并未针对其他的类型提供相关的辅助函数，且Go语言特有的内存模型导致我们无法保持这些由Go语言管理的内存指针，所以它们C语言环境并无使用的价值。
+不过需要注意的是，其中只有字符串和切片在CGO中有一定的使用价值，因为CGO为他们的某些GO语言版本的操作函数生成了C语言版本，因此二者可以在Go调用C语言函数时马上使用;而CGO并未针对其他的类型提供相关的辅助函数，且Go语言特有的内存模型导致我们无法保持这些由Go语言管理的内存指针，所以它们C语言环境并无使用的价值。
 
 在导出的C语言函数中我们可以直接使用Go字符串和切片。假设有以下两个导出函数：
 
@@ -318,12 +322,15 @@ type SliceHeader struct {
 
 ```go
 /*
-static char arr[10];
-static char *s = "Hello";
+#include <string.h>
+char arr[10];
+char *s = "Hello";
 */
 import "C"
-import "fmt"
-
+import (
+	"reflect"
+	"unsafe"
+)
 func main() {
 	// 通过 reflect.SliceHeader 转换
 	var arr0 []byte
@@ -336,12 +343,12 @@ func main() {
 	arr1 := (*[31]byte)(unsafe.Pointer(&C.arr[0]))[:10:10]
 
 	var s0 string
-	var s0Hdr := (*reflect.StringHeader)(unsafe.Pointer(&s0))
+	var s0Hdr = (*reflect.StringHeader)(unsafe.Pointer(&s0))
 	s0Hdr.Data = uintptr(unsafe.Pointer(C.s))
 	s0Hdr.Len = int(C.strlen(C.s))
 
 	sLen := int(C.strlen(C.s))
-	s1 := string((*[31]byte)(unsafe.Pointer(&C.s[0]))[:sLen:sLen])
+    	s1 := string((*[31]byte)(unsafe.Pointer(C.s))[:sLen:sLen])
 }
 ```
 
@@ -364,7 +371,7 @@ typedef struct { void *data; GoInt len; GoInt cap; } GoSlice;
 
 在Go语言中两个指针的类型完全一致则不需要转换可以直接通用。如果一个指针类型是用type命令在另一个指针类型基础之上构建的，换言之两个指针底层是相同完全结构的指针，那么我我们可以通过直接强制转换语法进行指针间的转换。但是cgo经常要面对的是2个完全不同类型的指针间的转换，原则上这种操作在纯Go语言代码是严格禁止的。
 
-cgo存在的一个目的就是打破Go语言的禁制，恢复C语言应有的指针的自由转换和指针运算。以下代码演示了如何将X类型的指针转化为Y类型的指针：
+cgo存在的一个目的就是打破Go语言的禁止，恢复C语言应有的指针的自由转换和指针运算。以下代码演示了如何将X类型的指针转化为Y类型的指针：
 
 ```go
 var p *X
@@ -378,7 +385,10 @@ p = (*X)(unsafe.Pointer(q)) // *Y => *X
 
 下面是指针间的转换流程的示意图：
 
-![](../images/ch2-x-ptr-to-y-ptr.uml.png)
+![](../images/ch2-1-x-ptr-to-y-ptr.uml.png)
+
+*图 2-1 X类型指针转Y类型指针*
+
 
 任何类型的指针都可以通过强制转换为`unsafe.Pointer`指针类型去掉原有的类型信息，然后再重新赋予新的指针类型而达到指针间的转换的目的。
 
@@ -390,15 +400,18 @@ p = (*X)(unsafe.Pointer(q)) // *Y => *X
 
 下面流程图演示了如何实现int32类型到C语言的`char*`字符串指针类型的相互转换：
 
-![](../images/ch2-int32-to-char-ptr.uml.png)
+![](../images/ch2-2-int32-to-char-ptr.uml.png)
+
+*图 2-2 int32和`char*`指针转换*
+
 
 转换分为几个阶段，在每个阶段实现一个小目标：首先是int32到uintptr类型，然后是uintptr到`unsafe.Pointr`指针类型，最后是`unsafe.Pointr`指针类型到`*C.char`类型。
 
 ## 2.3.7 切片间的转换
 
-在C语言中数组也一种指针，因此两个不同类型数组之间到转换和指针间转换基本类似。但是在Go语言中，数组或数组对应到切片都不再是指针类型，因为我们也就无法直接实现不同类型到切片之间的转换。
+在C语言中数组也一种指针，因此两个不同类型数组之间的转换和指针间转换基本类似。但是在Go语言中，数组或数组对应的切片都不再是指针类型，因此我们也就无法直接实现不同类型的切片之间的转换。
 
-不过Go语言的reflect包提供了切片类型到底层结构，再结合前面讨论到不同类型之间到指针转换技术就可以实现`[]X`和`[]Y`类型的切片转换：
+不过Go语言的reflect包提供了切片类型的底层结构，再结合前面讨论到不同类型之间的指针转换技术就可以实现`[]X`和`[]Y`类型的切片转换：
 
 ```go
 var p []X
@@ -412,10 +425,13 @@ pHdr.Len = qHdr.Len * unsafe.Sizeof(q[0]) / unsafe.Sizeof(p[0])
 pHdr.Cap = qHdr.Cap * unsafe.Sizeof(q[0]) / unsafe.Sizeof(p[0])
 ```
 
-不同切片类型之间转换到思路是先为构造一个空的目标切片，然后用原有的切片底层数据填充目标切片。如果X和Y类型的大小不同，需要重新设置Len和Cap属性。需要注意的是，如果X或Y是空类型，上述代码中可能导致除0错误，实际代码需要根据情况酌情处理。
+不同切片类型之间转换的思路是先构造一个空的目标切片，然后用原有的切片底层数据填充目标切片。如果X和Y类型的大小不同，需要重新设置Len和Cap属性。需要注意的是，如果X或Y是空类型，上述代码中可能导致除0错误，实际代码需要根据情况酌情处理。
 
 下面演示了切片间的转换的具体流程：
 
-![](../images/ch2-x-slice-to-y-slice.uml.png)
+![](../images/ch2-3-x-slice-to-y-slice.uml.png)
+
+*图 2-3 X类型切片转Y类型切片*
+
 
 针对CGO中常用的功能，作者封装了 "github.com/chai2010/cgo" 包，提供基本的转换功能，具体的细节可以参考实现代码。
