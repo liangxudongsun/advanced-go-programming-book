@@ -25,7 +25,7 @@ cgo 中的 ${SRCDIR} 为当前目录的绝对路径。经过编译后的C和C++�
 `pkg-config`工具虽然方便，但是有很多非标准的C/C++库并没有实现对其支持。
 这时候我们可以手工为`pkg-config`工具创建对应库的编译和链接参数实现支持。
 
-比如有一个名为xxx的C/C++库，我们可以手工创建`/usr/local/lib/pkgconfig/xxx.bc`文件：
+比如有一个名为xxx的C/C++库，我们可以手工创建`/usr/local/lib/pkgconfig/xxx.pc`文件：
 
 ```
 Name: xxx
@@ -33,7 +33,7 @@ Cflags:-I/usr/local/include
 Libs:-L/usr/local/lib –lxxx2
 ```
 
-其中Name是库的名字，Cflags和Libs行分别对应xxx使用库需要的编译和链接参数。如果bc文件在其它目录，
+其中Name是库的名字，Cflags和Libs行分别对应xxx使用库需要的编译和链接参数。如果`pc`文件在其它目录，
 可以通过PKG_CONFIG_PATH环境变量指定`pkg-config`工具的检索目录。
 
 而对应cgo来说，我们甚至可以通过PKG_CONFIG 环境变量可指定自定义的pkg-config程序。
@@ -107,5 +107,5 @@ $ PKG_CONFIG=./py3-config go build -buildmode=c-shared -o gopkg.so main.go
 
 官方文档说明导出的Go函数要放main包，但是真实情况是其它包的Go导出函数也是有效的。
 因为导出后的Go函数就可以当作C函数使用，所以必须有效。但是不同包导出的Go函数将在同一个全局的名字空间，因此需要小心避免重名的问题。
-如果是从不同的包导出Go函数到C语言空间，那么cgo自动生成的`_cgo_export.h`文件将无法包含全部到处的函数声明，
-我们必须通过手写头文件的方式什么导出的全部函数。
+如果是从不同的包导出Go函数到C语言空间，那么cgo自动生成的`_cgo_export.h`文件将无法包含全部导出的函数声明，
+我们必须通过手写头文件的方式声明导出的全部函数。
